@@ -387,7 +387,9 @@ class GuardWrites(HookCase):
                     "echo `sed -i s/a/b/ f`", "cp a b", "mv a b", "rm -rf dir", "dd if=/dev/zero of=f", "install -m 644 a b", "rsync a b", "touch f", "mkdir d",
                     "python3 -c \"open('f','w').write('x')\"", "node -e 'require(\"fs\").writeFileSync(\"f\",\"x\")'", "bash -c 'echo x > f'", "sh -c \"echo x > f\"",
                     "eval 'echo x > f'", "curl -o f URL", "wget -O f URL", "tar xf a.tar", "unzip a.zip", "exec > file", "> file cat", "echo x > $TMPDIR/../x", "echo x | tee {}",
-                    f"echo x > {tmp}/../other/file"):
+                    f"echo x > {tmp}/../other/file", "echo x >| out.txt", "echo x >|out.txt", "echo hi 1<>f.txt", "exec 3<> f", "sed -e 's/a/b/' -i f.txt",
+                    "sed -n 1p f -i", "sed -e s/a/b/ -e s/c/d/ --in-place f", "find . -name x -delete", "find -delete", "/usr/bin/find src -type f -delete",
+                    f"find {tmp}/a src -delete", "find \"$HOME\" -delete"):
             self.assertEqual(self.bash(cmd), "deny", cmd)
             self.assertEqual(self.bash(cmd, "model-router:senior-operator"), "deny", cmd)
             self.assertEqual(self.bash(cmd, "model-router:coordinator"), "deny", cmd)
@@ -403,7 +405,9 @@ class GuardWrites(HookCase):
                     f"echo ok | tee {self.SCRATCH}/a {tmp}/b", f"cp a.txt {tmp}/b.txt", f"rm {self.SCRATCH}/old.diff", f"mkdir -p {tmp}/work", f"curl -o {tmp}/x.json https://x",
                     f"tar xf a.tar -C {tmp}/u", "echo \"a > b\"", "awk '{print > \"x\"}' f", "git stash && git pull && git stash pop", "pytest -q 1>&2", "bash -c 'ls -la'",
                     "python3 -c \"print(open('f').read())\"", "python3 - <<'EOF'\nif a > b:\n    print(1)\nEOF", "psql -c x <<EOF\nselect * from t where a > 1;\nEOF",
-                    "cat <<EOF\n<p>html</p>\nEOF", "echo a -> b", "cat f | tee >(wc -l)"):
+                    "cat <<EOF\n<p>html</p>\nEOF", "echo a -> b", "cat f | tee >(wc -l)", f"echo x >| {tmp}/y", f"find {tmp}/old -delete",
+                    f"find {self.SCRATCH} {tmp}/b -name '*.diff' -delete", "find . -name '*.py'", "find . -name deleted -print", "sed -n 1p f | grep -i x",
+                    "sed -n 1p f\nls -i", "sed -n 1p f && grep -i x g", "cat <<EOF\na <> b\nEOF"):
             self.assertIsNone(self.bash(cmd), cmd)
 
     def test_other_agents_and_the_main_session_are_untouched(self):
