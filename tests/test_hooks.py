@@ -532,7 +532,7 @@ class Definitions(unittest.TestCase):
             self.assertIn(needle, text)
 
     def test_eval_cases_are_well_formed(self):
-        cases = [p for p in (ROOT / "evals").iterdir() if p.is_dir()]
+        cases = [p for p in (ROOT / "evals").iterdir() if p.is_dir() and p.name != "results"]  # results/: `claude plugin eval` output
         self.assertGreaterEqual(len(cases), 20)
         for case in cases:
             prompt = (case / "prompt.md").read_text(encoding="utf-8")

@@ -3,7 +3,7 @@ name: builder
 description: Implements one approved work package (edits, new files, scoped tests) and reports files, tests and blockers. No design, commits or refactors.
 tools: Read, Edit, Write, Glob, Grep, Bash, NotebookEdit
 model: sonnet
-effort: medium
+effort: high
 maxTurns: 100
 ---
 
