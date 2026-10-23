@@ -39,6 +39,9 @@ if model == "opus":
     print(json.dumps({"type": "result", "subtype": "error", "is_error": True, "api_error_status": 404, "result": "model not found"})); sys.exit(1)
 if model == "fable":
     print("garbage"); print("E: boom", file=sys.stderr); sys.exit(1)
+if model == "claude-opus-5-5":  # a haiku helper call that read more context and wrote more than the probe's own answer
+    print(json.dumps({"type": "result", "subtype": "success", "is_error": False, "total_cost_usd": 0.0053,
+                      "modelUsage": {"claude-opus-5-5": {"inputTokens": 2, "outputTokens": 4}, "claude-haiku-4-5": {"inputTokens": 5000, "outputTokens": 30}}})); sys.exit(0)
 answered = "claude-sonnet-4-5" if model in ("sonnet", "my-haiku-deployment") else "claude-" + model + "-4-5"
 print(json.dumps({"type": "result", "subtype": "success", "is_error": False, "total_cost_usd": 0.0012,
                   "modelUsage": {answered: {"inputTokens": 900, "outputTokens": 3}, "claude-haiku-4-5": {"inputTokens": 40, "outputTokens": 1}}}))
@@ -288,6 +291,22 @@ class SetupCase(unittest.TestCase):
         self.assertIn("builder         opus    FAIL", out)
         self.assertIn("cheaper and OK: haiku, sonnet", out)
         self.assertEqual(self.run_script("check", "--bogus")[0], 2)
+
+    def test_check_is_not_fooled_by_haiku_helper_calls(self):
+        code, out, _ = self.run_script("check", "claude-opus-5-5")
+        self.assertEqual(code, 0, out)
+        self.assertRegex(out, r"claude-opus-5-5\s+OK\s+claude-opus-5-5")
+        pick = load_models().answering_model
+        helper = {"inputTokens": 5000, "outputTokens": 30}
+        self.assertEqual(pick({"claude-opus-5-5": {"inputTokens": 2, "outputTokens": 4}, "claude-haiku-5-5": helper}, "opus"), "claude-opus-5-5")
+        self.assertEqual(pick({"claude-sonnet-5-5": {"outputTokens": 4}, "claude-haiku-5-5": helper}, "opus"), "claude-sonnet-5-5", "a fallback to sonnet")
+        self.assertEqual(pick({"claude-opus-5-5": {"outputTokens": 0}, "claude-sonnet-5-5": {"outputTokens": 4}}, "opus"), "claude-sonnet-5-5", "opus wrote nothing")
+        self.assertEqual(pick({"claude-haiku-5-5": {"outputTokens": 4}}, "opus"), "claude-haiku-5-5", "a fallback to haiku")
+        self.assertEqual(pick({"claude-sonnet-5-5": {"outputTokens": 3}, "claude-haiku-5-5": {"outputTokens": 1}}, "haiku"), "claude-sonnet-5-5", "haiku asked, sonnet answered")
+        self.assertEqual(pick({"claude-haiku-5-5": {"outputTokens": 4}}, "haiku"), "claude-haiku-5-5")
+        self.assertEqual(pick({"my-deployment": {"outputTokens": 4}, "claude-haiku-5-5": helper}, None), "my-deployment")
+        self.assertEqual(pick({}, "opus"), "?")
+        self.assertEqual(pick(None, "opus"), "?")
 
 
 if __name__ == "__main__":

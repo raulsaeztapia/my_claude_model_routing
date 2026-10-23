@@ -307,6 +307,27 @@ def last_line(text):
     return lines[-1] if lines else ""
 
 
+def answering_model(model_usage, wanted):
+    """The model id that answered a probe, from its `modelUsage`.
+
+    Claude Code also makes small helper calls on its fast (haiku) model, at times with more
+    input than the tiny probe itself, so neither the most input nor the most output names the
+    answer reliably. A model of the wanted family that produced output answered; otherwise the
+    non-haiku model with the most output did (a fallback), and haiku only when nothing else ran.
+    When haiku itself is wanted its usage proves nothing (a helper call looks the same), so any
+    other model that ran is the answer.
+    """
+    def output(kv):
+        return (kv[1] or {}).get("outputTokens") or 0
+
+    usage = [kv for kv in (model_usage or {}).items() if isinstance(kv[1], dict)]
+    for pool in ([kv for kv in usage if wanted not in (None, "haiku") and family(kv[0]) == wanted and output(kv)],
+                 [kv for kv in usage if family(kv[0]) != "haiku"], usage):
+        if pool:
+            return max(pool, key=output)[0]
+    return "?"
+
+
 def check_one(model):
     argv = [shutil.which("claude") or "claude", "-p", "Reply with the single word OK.", "--model", model, "--output-format", "json", "--max-turns", "1",
             "--tools", "", "--system-prompt", "Answer with exactly what is asked.", "--no-session-persistence", "--strict-mcp-config",
@@ -337,15 +358,9 @@ def check_one(model):
             detail = f"HTTP {result['api_error_status']}: {detail}"
         return {**out, "status": "FAIL", "detail": detail[:200]}
 
-    # Claude Code also makes small helper calls on its fast model; the model that answered is
-    # the one that carried the conversation context, not the one with the most output tokens.
-    def context_tokens(usage):
-        return sum(usage.get(k) or 0 for k in ("inputTokens", "cacheReadInputTokens", "cacheCreationInputTokens"))
-
-    answered = sorted((result.get("modelUsage") or {}).items(), key=lambda kv: -context_tokens(kv[1]))
-    answered_by = answered[0][0] if answered else "?"
-    out.update(status="OK", answered_by=answered_by)
     wanted = family(effective_env(ALIAS_ENV[model]) or model) if model in ALIASES else family(model)
+    answered_by = answering_model(result.get("modelUsage"), wanted)
+    out.update(status="OK", answered_by=answered_by)
     got = family(answered_by)
     if wanted and got and got != wanted:
         out["status"] = "FALLBACK"
