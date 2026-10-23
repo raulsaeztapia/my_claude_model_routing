@@ -458,6 +458,8 @@ def backup_path(path):
 
 
 def atomic_write(path, text):
+    """Write through a symlink (a dotfiles-managed settings.json): replacing the link itself would cut it loose."""
+    path = Path(os.path.realpath(path))
     tmp = path.with_name(f".{path.name}.{os.getpid()}.tmp")
     try:
         tmp.write_text(text, encoding="utf-8")

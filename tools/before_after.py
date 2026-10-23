@@ -3,7 +3,8 @@
 
 usage: python3 before_after.py [CONFIG_DIR ...]      (default: ~/.claude)
 
-A session counts as "after" when a hook injected the routing rules into it. Costs are relative
+A session counts as "after" when a hook injected the routing rules into it (a hook-context
+record carrying them; a tool result that merely quotes the rules does not count). Costs are relative
 units at list-price ratios (input 1, cache read 0.1, 5-minute cache write 1.25, 1-hour cache
 write 2.0, output 5; cache_creation_input_tokens is the total written and the 1-hour share comes
 from the cache_creation breakdown, so an old transcript without that breakdown is priced as
@@ -80,6 +81,13 @@ def typed_prompt(r):
     return None if (not c or c.startswith("<") or c.startswith("[Request interrupted")) else c
 
 
+def injected_rules(r, line):
+    """True for a record a hook wrote the routing rules into; a tool result that only quotes them is not one."""
+    if "## Model routing" not in line:
+        return False
+    return any(isinstance(x, dict) and x.get("type") == "hook_additional_context" for x in (r.get("attachment"), r, r.get("message")))
+
+
 def reports(r, agent_ids):
     """Texts of agent reports in a user record: tool results of Agent/Task calls, and <result> blocks.
     A background launch's acknowledgement (toolUseResult.status "async_launched", or the fixed text
@@ -108,13 +116,14 @@ for cfg in dirs:
         routed = False
         recs = []
         for line in open(path, encoding="utf-8", errors="replace"):
-            if "## Model routing" in line and "hook_additional_context" in line:
-                routed = True
             try:
                 r = json.loads(line)
             except ValueError:
                 continue
-            if isinstance(r, dict) and isinstance(r.get("message") or {}, dict):
+            if not isinstance(r, dict):
+                continue
+            routed = routed or injected_rules(r, line)
+            if isinstance(r.get("message") or {}, dict):
                 recs.append(r)
         g = "after" if routed else "before"; G = groups[g]; T = seconds[g]
         seen = set(); seen_tools = set(); agent_ids = set(); cur = None; opened = []; prompts = 0
@@ -148,9 +157,10 @@ for cfg in dirs:
                     if n in ("Agent", "Task"):
                         agent_ids.add(b.get("id")); G["subs"] += 1
                         G["subs_with_model"] += bool(i.get("model"))
-                if not u or m.get("id") in seen:
+                mid = m.get("id")                 # a message written once per block repeats its id and usage; no id: count it
+                if not u or (mid and mid in seen):
                     continue
-                seen.add(m.get("id")); c = cost(u); w5, w1 = writes(u)
+                seen.add(mid); c = cost(u); w5, w1 = writes(u)
                 ctx = (u.get("cache_read_input_tokens") or 0) + w5 + w1 + (u.get("input_tokens") or 0)
                 G["cost"] += c; G["calls"] += 1; G["ctx_sum"] += ctx; G["ttl_5m"] += w5; G["ttl_1h"] += w1
                 if ctx >= 2e5:
