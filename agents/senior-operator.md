@@ -3,7 +3,7 @@ name: senior-operator
 description: Background diagnosis: why a pipeline, plan, job or deployment failed; multi-step investigations; conflicted rebases. Reports cause and next step; never edits code.
 disallowedTools: Edit, Write, NotebookEdit, Agent
 model: sonnet
-effort: medium
+effort: high
 background: true
 omitClaudeMd: true
 maxTurns: 80
