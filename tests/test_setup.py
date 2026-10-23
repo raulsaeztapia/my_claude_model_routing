@@ -142,6 +142,21 @@ class SetupCase(unittest.TestCase):
         self.assertEqual(len(self.backups()), before, "a refused write must not leave a backup")
         self.assertEqual(list(self.cfg.glob(".settings.json.*.tmp")), [])
 
+    def test_writers_keep_a_symlinked_settings_file_linked(self):
+        dotfiles = Path(self.tmp.name) / "dotfiles"
+        dotfiles.mkdir()
+        real = dotfiles / "settings.json"
+        real.write_text('{"theme": "dark"}')
+        try:
+            (self.cfg / "settings.json").symlink_to(real)
+        except (OSError, NotImplementedError):
+            self.skipTest("symlinks are not available here")
+        for args in (("forks", "off"), ("map", "haiku=my-haiku-deployment"), ("unmap", "haiku")):
+            self.assertEqual(self.run_script(*args)[0], 0, args)
+            self.assertTrue((self.cfg / "settings.json").is_symlink(), f"{args} replaced the link with a file")
+        self.assertEqual(json.loads(real.read_text(encoding="utf-8")), {"theme": "dark", "env": {"CLAUDE_CODE_FORK_SUBAGENT": "false"}})
+        self.assertEqual(list(dotfiles.glob(".settings.json.*.tmp")), [])
+
     def test_show_reads_project_and_shell_layers(self):
         project = Path(self.tmp.name) / "proj" / ".claude"
         project.mkdir(parents=True)

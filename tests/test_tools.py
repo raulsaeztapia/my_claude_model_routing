@@ -99,8 +99,8 @@ class ToolCase(unittest.TestCase):
     def tearDownClass(cls):
         cls.tmp.cleanup()
 
-    def run_tool(self, name):
-        p = subprocess.run([sys.executable, str(TOOLS / name), str(self.cfg)], capture_output=True, text=True, env=self.env, cwd=self.tmp.name)
+    def run_tool(self, name, cfg=None):
+        p = subprocess.run([sys.executable, str(TOOLS / name), str(cfg or self.cfg)], capture_output=True, text=True, env=self.env, cwd=self.tmp.name)
         self.assertEqual(p.returncode, 0, p.stderr)
         return p.stdout
 
@@ -150,6 +150,22 @@ class ToolCase(unittest.TestCase):
         self.assertIn("('None', 'haiku'): 1", out)      # the duplicated m4 record counts once
         self.assertIn("('None', 'None'): 1", out)
         self.assertIn("'claude-sonnet-4-5': 7", out)
+
+    def test_quoted_rules_and_messages_without_id(self):
+        """A session that only reads the plugin's source is "before"; assistant messages without an id each count."""
+        cfg = Path(self.tmp.name) / "cfg-quoted"
+        proj = cfg / "projects" / "y"
+        proj.mkdir(parents=True)
+        quoted = '## Model routing\n...\nrecord = b"hook_additional_context"'
+        recs = [rec("user", "explain this plugin", 10), assistant("q1", [tool_use("tq1", "Bash", command="cat hooks/*.py")], 20),
+                tool_result("tq1", quoted, 25)] + [assistant(None, [{"type": "text", "text": "part"}], 30 + i) for i in range(3)]
+        for r in recs[-3:]:
+            del r["message"]["id"]
+        (proj / "s2.jsonl").write_text("\n".join(json.dumps(r) for r in recs) + "\n", encoding="utf-8")
+        out = self.run_tool("before_after.py", cfg)
+        self.line(out, r"^\[before\] sessions 1, prompts 1, compactions 0, api calls 4$")
+        self.line(out, r"^\[after\] sessions 0, prompts 0, compactions 0, api calls 0$")
+        self.line(self.run_tool("session_report.py", cfg), r"^\s*operational \(commands/MCP\)\s+1\s+4 ")
 
 
 if __name__ == "__main__":

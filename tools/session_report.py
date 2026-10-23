@@ -110,9 +110,10 @@ for cfg in dirs:
                         invoked["skill:" + str(i.get("skill"))][0] += 1; invoked["skill:" + str(i.get("skill"))][1].append(ctx)
                     if n in ("Agent", "Task"):
                         agents[(str(i.get("subagent_type")), str(i.get("model")))] += 1
-                if not u or m.get("id") in seen:
+                mid = m.get("id")                 # a message written once per block repeats its id and usage; no id: count it
+                if not u or (mid and mid in seen):
                     continue
-                seen.add(m.get("id")); c = cost(u); total += c; scost += c; models[m.get("model")] += 1
+                seen.add(mid); c = cost(u); total += c; scost += c; models[m.get("model")] += 1
                 w5, w1 = writes(u); w = w5 + w1; ttl["5m"] += w5; ttl["1h"] += w1
                 ctx = (u.get("cache_read_input_tokens") or 0) + w + (u.get("input_tokens") or 0)
                 band = "<100k" if ctx < 1e5 else "100-200k" if ctx < 2e5 else "200-400k" if ctx < 4e5 else "400k+"

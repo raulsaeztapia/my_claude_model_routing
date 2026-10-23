@@ -10,13 +10,13 @@ with a reason that tells the agent to report what should change instead. Agent-s
 `hooks:` and `permissionMode:` in a plugin's agent files are ignored by Claude Code, so a
 plugin-level hook keyed on the agent type is the only place this can live.
 
-Caught: redirections and `tee` (also behind `sudo`, `xargs`, a path or a `VAR=x` prefix),
-in-place editors (`sed -i`, `perl -i`, `patch`, `truncate`), file commands with a target
-outside the allowed directories (`cp`, `mv`, `install`, `rsync`, `rm`, `touch`, `mkdir`,
-`ln`, `chmod`, `chown`, `dd of=`, `curl -o`, `wget -O`, `tar x`, `unzip`), git commands
-that rewrite the working tree or history (`apply`, `am`, `restore`, `rm`, `mv`,
-`checkout --|.|-f|-p`, `switch -C|--discard-changes`, `reset --hard`, `clean`,
-`branch -D|-M`, `push --force|-f|+ref`), one-line interpreter scripts that open a file for
+Caught: redirections (`>`, `>>`, `>|`, `<>`) and `tee` (also behind `sudo`, `xargs`, a
+path or a `VAR=x` prefix), in-place editors (`sed -i`, `perl -i`, `patch`, `truncate`), file
+commands with a target outside the allowed directories (`cp`, `mv`, `install`, `rsync`, `rm`,
+`touch`, `mkdir`, `ln`, `chmod`, `chown`, `find -delete`, `dd of=`, `curl -o`, `wget -O`,
+`tar x`, `unzip`), git commands that rewrite the working tree or history (`apply`, `am`,
+`restore`, `rm`, `mv`, `checkout --|.|-f|-p`, `switch -C|--discard-changes`, `reset --hard`,
+`clean`, `branch -D|-M`, `push --force|-f|+ref`), one-line interpreter scripts that open a file for
 writing, and `bash -c`/`eval` strings that contain any of the above.
 
 Allowed anyway: redirections to /dev/null, /dev/tty or a file descriptor, and writes under
@@ -49,7 +49,7 @@ ARG = r"[^\s;|&()`]+"
 GIT = r"git(?:\s+(?:-[cC]\s*\S+|--git-dir=\S+|--work-tree=\S+|--no-pager))*\s+"
 
 EDITORS = re.compile(START + r"(?:"
-    r"g?sed\s+(?:-\S+\s+)*-(?:[a-zA-Z]*i\b|-in-place\b)"
+    r"g?sed\s+(?:" + ARG + r"[ \t]+)*-(?:[a-zA-Z]*i\b|-in-place\b)"
     r"|perl\s+(?:-\S+\s+)*-[a-zA-Z]*i\b"
     r"|patch\b|truncate\b|shred\b|sponge\b"
     r"|" + GIT + r"(?:apply\b|am\b|restore\b|rm\b|mv\b|clean\b|reset\s+--hard\b|branch\s+-[DM]\b"
@@ -63,13 +63,15 @@ DEST_LAST = re.compile(START + r"(?:cp|mv|install|rsync|scp)\s+((?:" + ARG + r"\
 ALL_ARGS = re.compile(START + r"(?:rm|rmdir|unlink|touch|mkdir|ln|chmod|chown|chgrp|mkfifo)\s+((?:" + ARG + r"\s*)+)")
 DD = re.compile(START + r"dd\s+(?:\S+\s+)*of=(" + ARG + r")")
 FETCH = re.compile(START + r"(?:curl|wget)\s+(?:\S+\s+)*(?:-o|-O|--output|--output-document)[= ]\s*(" + ARG + r")")
+# `find ... -delete`: every starting path (the arguments before the first expression) is a target
+FIND_DELETE = re.compile(START + r"find((?:[ \t]+" + ARG + r")*?)[ \t]+-delete\b")
 EXTRACT = re.compile(START + r"(?:tar\s+(?:-?\S*x\S*|--extract)|unzip|7z\s+x|gunzip|bunzip2|unxz)\b(.*)")
 EXTRACT_DEST = re.compile(r"(?:-C|-d|--directory)[= ]\s*(" + ARG + r")")
 ONE_LINER = re.compile(START + r"(?:python[0-9.]*|node|nodejs|perl|ruby|php)\s+(?:-\S+\s+)*-[a-zA-Z]*[ce]\b")
 WRITE_CALLS = re.compile(r"open\([^)]*['\"][rbt]*[wax+]|\.write_(?:text|bytes)\(|writeFile(?:Sync)?\(|appendFile(?:Sync)?\(|copyFile(?:Sync)?\(|renameSync?\(|unlinkSync?\(|rmSync\(|mkdirSync?\("
                          r"|savetxt\(|to_csv\(|to_json\(|to_excel\(|shutil\.(?:copy|move|rmtree)|os\.(?:remove|rename|unlink|makedirs|mkdir|replace)\(|File\.(?:open|write)\(|FileUtils")
 SHELL_C = re.compile(START + r"(?:bash|sh|zsh|dash|ksh)\s+(?:-\S+\s+)*-c\s+|" + START + r"eval\s+")
-REDIRECT = re.compile(r"(?<![<>\-])(?:\d?>>?|&>>?)(?!\()\s*(&?" + ARG + r")")
+REDIRECT = re.compile(r"(?<![<>\-])(?:\d?<>|\d?>[>|]?|&>>?)(?!\()\s*(&?" + ARG + r")")
 TEE = re.compile(START + r"tee\s+((?:" + ARG + r"\s*)+)")
 HEREDOC = re.compile(r"<<-?\s*(?:'(\w+)'|\"(\w+)\"|(\w+))")
 REASON = "model-router: {agent} does not change files ({what}). Report what should change instead, or write under the scratchpad directory."
@@ -161,6 +163,14 @@ def violation(command, prefixes, depth=0):
         for hit in pat.finditer(bare):
             if not target_allowed(span(hit), prefixes):
                 return hit.group(0).strip(" |;&(`{")[:60]
+    for hit in FIND_DELETE.finditer(bare):
+        paths = []
+        for tok in re.finditer(r"\S+", hit.group(1)):
+            if tok.group(0).startswith(("-", "!")):
+                break
+            paths.append(command[hit.start(1) + tok.start():hit.start(1) + tok.end()])
+        if not paths or not all(target_allowed(t, prefixes) for t in paths):
+            return hit.group(0).strip(" |;&(`{")[:60]
     for hit in EXTRACT.finditer(bare):
         dest = EXTRACT_DEST.search(span(hit))
         if not dest or not target_allowed(command[hit.start(1) + dest.start(1):hit.start(1) + dest.end(1)], prefixes):
